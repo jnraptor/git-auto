@@ -28,7 +28,7 @@ func (r *Runner) Run(args ...string) (string, error) {
 		return "", &GitError{Command: "git " + strings.Join(args, " "), Err: err}
 	}
 
-	return strings.TrimSpace(string(out)), nil
+	return string(out), nil
 }
 
 type GitError struct {
@@ -49,36 +49,47 @@ func (e *GitError) Unwrap() error {
 }
 
 func (r *Runner) Status() (*Status, error) {
-	output, err := r.Run("status", "--porcelain=v1")
+	output, err := r.Run("status", "--porcelain=v1", "-z")
 	if err != nil {
 		return nil, err
 	}
 
-	status := &Status{
-		Files: make([]FileStatus, 0),
-	}
+	return parseStatusPorcelainV1Z(output), nil
+}
 
+func parseStatusPorcelainV1Z(output string) *Status {
+	status := &Status{Files: make([]FileStatus, 0)}
 	if output == "" {
-		return status, nil
+		return status
 	}
 
-	lines := strings.Split(output, "\n")
-	for _, line := range lines {
-		if len(line) < 3 {
+	records := bytes.Split([]byte(output), []byte{0})
+	for i := 0; i < len(records); i++ {
+		record := records[i]
+		if len(record) == 0 {
 			continue
 		}
-		indexStatus := line[0]
-		workTreeStatus := line[1]
-		path := strings.TrimSpace(line[3:])
+		if len(record) < 4 || record[2] != ' ' {
+			continue
+		}
 
-		status.Files = append(status.Files, FileStatus{
-			IndexStatus:    indexStatus,
-			WorkTreeStatus: workTreeStatus,
-			Path:           path,
-		})
+		fileStatus := FileStatus{
+			IndexStatus:    record[0],
+			WorkTreeStatus: record[1],
+			Path:           string(record[3:]),
+		}
+
+		if fileStatus.IndexStatus == 'R' || fileStatus.IndexStatus == 'C' || fileStatus.WorkTreeStatus == 'R' || fileStatus.WorkTreeStatus == 'C' {
+			if i+1 < len(records) && len(records[i+1]) > 0 {
+				fileStatus.Path = string(records[i+1])
+				i++
+			}
+		}
+
+		status.Files = append(status.Files, fileStatus)
 	}
 
-	return status, nil
+	return status
 }
 
 func (r *Runner) Diff() (string, error) {
@@ -120,7 +131,7 @@ func (r *Runner) HasConflicts() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return output != "", nil
+	return strings.TrimSpace(output) != "", nil
 }
 
 func (r *Runner) CurrentBranch() (string, error) {
