@@ -54,6 +54,9 @@ Set environment variables:
 
 # Force push (use with caution)
 ./git-auto --force-push
+
+# Create and push a tag after successful push
+./git-auto --tag v1.0.0
 ```
 
 ## Flags
@@ -62,6 +65,7 @@ Set environment variables:
 - `-m` - Commit message (if not provided, generates via LLM)
 - `--dry-run` - Show what would be done without executing
 - `--force-push` - Force push to remote (use with caution)
+- `--tag` - Create and push a tag after successful push
 
 ## Workflow
 

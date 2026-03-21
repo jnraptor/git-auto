@@ -130,3 +130,13 @@ func (r *Runner) CurrentBranch() (string, error) {
 	}
 	return strings.TrimSpace(output), nil
 }
+
+func (r *Runner) Tag(name string) error {
+	_, err := r.Run("tag", name)
+	return err
+}
+
+func (r *Runner) PushTags() error {
+	_, err := r.Run("push", "--tags")
+	return err
+}

@@ -17,6 +17,7 @@ var (
 	messageFlag   = flag.String("m", "", "Commit message (if not provided, generate via LLM)")
 	dryRunFlag    = flag.Bool("dry-run", false, "Show what would be done without executing")
 	forcePushFlag = flag.Bool("force-push", false, "Force push (use with caution)")
+	tagFlag       = flag.String("tag", "", "Create and push a tag after successful push")
 )
 
 func main() {
@@ -122,6 +123,19 @@ func main() {
 
 	if result.Success {
 		fmt.Println(result.Message)
+		if *tagFlag != "" {
+			fmt.Printf("Creating tag: %s\n", *tagFlag)
+			if err := gitRunner.Tag(*tagFlag); err != nil {
+				fmt.Fprintln(os.Stderr, "Error: Failed to create tag:", err)
+				os.Exit(1)
+			}
+			fmt.Printf("Pushing tag: %s\n", *tagFlag)
+			if err := gitRunner.PushTags(); err != nil {
+				fmt.Fprintln(os.Stderr, "Error: Failed to push tag:", err)
+				os.Exit(1)
+			}
+			fmt.Println("Tag pushed successfully.")
+		}
 	} else {
 		fmt.Fprintln(os.Stderr, "Push failed:", result.Message)
 		if result.HasConflict {
