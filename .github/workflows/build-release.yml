@@ -35,6 +35,8 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
+          pwd
+          ls
           ext=""
           if [ "$GOOS" = "windows" ]; then
             ext=".exe"
