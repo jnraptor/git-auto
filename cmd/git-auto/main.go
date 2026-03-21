@@ -45,7 +45,22 @@ func main() {
 	}
 
 	if !status.HasChanges() {
+		if *tagFlag == "" {
+			fmt.Println("No changes to commit.")
+			os.Exit(0)
+		}
 		fmt.Println("No changes to commit.")
+		fmt.Printf("Creating tag: %s\n", *tagFlag)
+		if err := gitRunner.Tag(*tagFlag); err != nil {
+			fmt.Fprintln(os.Stderr, "Error: Failed to create tag:", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Pushing tag: %s\n", *tagFlag)
+		if err := gitRunner.PushTags(); err != nil {
+			fmt.Fprintln(os.Stderr, "Error: Failed to push tag:", err)
+			os.Exit(1)
+		}
+		fmt.Println("Tag pushed successfully.")
 		os.Exit(0)
 	}
 

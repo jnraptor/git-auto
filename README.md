@@ -86,6 +86,23 @@ If a merge conflict occurs:
 2. User must resolve conflicts manually: `git mergetool`
 3. After resolution, run `git-auto` again
 
+## Testing
+
+```bash
+# Run all tests
+go test ./...
+
+# Run tests with verbose output
+go test -v ./...
+
+# Run tests with coverage
+go test -cover ./...
+
+# Get detailed coverage by function
+go test -coverprofile=coverage.out ./...
+go tool cover -func=coverage.out
+```
+
 ## License
 
 MIT
