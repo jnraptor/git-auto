@@ -6,6 +6,9 @@ Automated git add-commit-push workflow with LLM-generated commit messages.
 
 - Auto-stage changed files (all or untracked only)
 - Generate conventional commit messages via OpenAI-compatible LLM API
+- Interactive mode for file selection and commit message confirmation
+- Customizable LLM prompt templates
+- Configurable diff size limits for LLM input
 - Automatic push with merge strategy on rejection
 - Conflict detection with user guidance
 
@@ -46,6 +49,9 @@ Set environment variables:
 # Stage all changed files
 ./git-auto -a
 
+# Interactive mode - select files and confirm commit message
+./git-auto --interactive
+
 # Provide custom commit message
 ./git-auto -m "feat: add new feature"
 
@@ -57,6 +63,12 @@ Set environment variables:
 
 # Create and push a tag after successful push
 ./git-auto --tag v1.0.0
+
+# Use custom LLM prompt
+./git-auto --prompt "Generate a concise commit message: %s"
+
+# Limit diff size sent to LLM (useful for large changes)
+./git-auto --max-diff 10000
 ```
 
 ## Flags
@@ -65,7 +77,20 @@ Set environment variables:
 - `-m` - Commit message (if not provided, generates via LLM)
 - `--dry-run` - Show what would be done without executing
 - `--force-push` - Force push to remote (use with caution)
+- `--interactive` - Interactive mode: select files to stage and confirm/edit commit message
+- `--prompt` - Custom prompt template for LLM (use `%s` as placeholder for diff)
+- `--max-diff` - Maximum characters of diff to send to LLM (0 = unlimited, default: 0)
 - `--tag` - Create and push a tag after successful push
+
+## Interactive Mode
+
+When using `--interactive`, you can select files using:
+- Single numbers: `1 3 5`
+- Comma-separated: `1,3,5`
+- Ranges: `1-4` (selects files 1 through 4)
+- Combined: `1-4,6` (selects files 1-4 and 6)
+- `all` - select all files
+- `none` - cancel selection
 
 ## Workflow
 

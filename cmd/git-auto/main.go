@@ -1,23 +1,28 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"os"
 
 	"github.com/git-automate/git-auto/config"
 	"github.com/git-automate/git-auto/internal/git"
+	"github.com/git-automate/git-auto/internal/interactive"
 	"github.com/git-automate/git-auto/internal/llm"
 	"github.com/git-automate/git-auto/internal/push"
 )
 
 var (
-	allFlag       = flag.Bool("a", false, "Stage all changed files")
-	allFlagLong   = flag.Bool("all", false, "Stage all changed files")
-	messageFlag   = flag.String("m", "", "Commit message (if not provided, generate via LLM)")
-	dryRunFlag    = flag.Bool("dry-run", false, "Show what would be done without executing")
-	forcePushFlag = flag.Bool("force-push", false, "Force push (use with caution)")
-	tagFlag       = flag.String("tag", "", "Create and push a tag after successful push")
+	allFlag          = flag.Bool("a", false, "Stage all changed files")
+	allFlagLong      = flag.Bool("all", false, "Stage all changed files")
+	messageFlag      = flag.String("m", "", "Commit message (if not provided, generate via LLM)")
+	dryRunFlag       = flag.Bool("dry-run", false, "Show what would be done without executing")
+	forcePushFlag    = flag.Bool("force-push", false, "Force push (use with caution)")
+	tagFlag          = flag.String("tag", "", "Create and push a tag after successful push")
+	interactiveFlag  = flag.Bool("interactive", false, "Interactive mode: select files and confirm commit message")
+	customPromptFlag = flag.String("prompt", "", "Custom prompt template for LLM (use %s for diff placeholder)")
+	maxDiffFlag      = flag.Int("max-diff", 0, "Maximum characters of diff to send to LLM (0 = unlimited)")
 )
 
 func main() {
@@ -84,7 +89,26 @@ func main() {
 		os.Exit(0)
 	}
 
-	if *allFlag || *allFlagLong {
+	var filesToStage []string
+	var bufReader *bufio.Reader
+
+	if *interactiveFlag {
+		bufReader = bufio.NewReader(os.Stdin)
+		selected, err := interactive.SelectFiles(status, bufReader)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			os.Exit(1)
+		}
+		if len(selected) == 0 {
+			fmt.Println("No files selected. Exiting.")
+			os.Exit(0)
+		}
+		filesToStage = selected
+		fmt.Printf("Selected %d file(s):\n", len(filesToStage))
+		for _, f := range filesToStage {
+			fmt.Printf("  %s\n", f)
+		}
+	} else if *allFlag || *allFlagLong {
 		if err := gitRunner.AddAll(); err != nil {
 			fmt.Fprintln(os.Stderr, "Error: Failed to stage files:", err)
 			os.Exit(1)
@@ -108,6 +132,14 @@ func main() {
 		}
 	}
 
+	if len(filesToStage) > 0 {
+		if err := gitRunner.Add(filesToStage...); err != nil {
+			fmt.Fprintln(os.Stderr, "Error: Failed to stage files:", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Staged %d file(s).\n", len(filesToStage))
+	}
+
 	diff, err := gitRunner.Diff()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error: Failed to get diff:", err)
@@ -117,20 +149,50 @@ func main() {
 	commitMessage := *messageFlag
 	if commitMessage == "" {
 		fmt.Println("Generating commit message via LLM...")
-		llmClient := llm.NewClient(cfg.APIKey, cfg.BaseURL, cfg.Model)
+
+		if *customPromptFlag != "" {
+			llm.SetPromptTemplate(*customPromptFlag)
+		}
+
+		var llmClient *llm.Client
+		if *maxDiffFlag > 0 {
+			llmClient = llm.NewClientWithMaxDiff(cfg.APIKey, cfg.BaseURL, cfg.Model, *maxDiffFlag)
+		} else {
+			llmClient = llm.NewClient(cfg.APIKey, cfg.BaseURL, cfg.Model)
+		}
+
 		commitMessage, err = llmClient.GenerateCommitMessage(diff)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error: Failed to generate commit message:", err)
 			os.Exit(1)
 		}
-		fmt.Printf("Generated commit message: %s\n", commitMessage)
+		if !*interactiveFlag {
+			fmt.Printf("Generated commit message: %s\n", commitMessage)
+		}
 	}
 
-	if err := gitRunner.Commit(commitMessage); err != nil {
+	if *interactiveFlag && *messageFlag == "" {
+		confirmedMessage, proceed, err := interactive.ConfirmCommitMessage(commitMessage, bufReader)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			os.Exit(1)
+		}
+		if !proceed {
+			fmt.Println("Commit cancelled.")
+			os.Exit(0)
+		}
+		commitMessage = confirmedMessage
+	}
+
+	commitOutput, err := gitRunner.Commit(commitMessage)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error: Failed to create commit:", err)
 		os.Exit(1)
 	}
 	fmt.Println("Commit created successfully.")
+	if commitOutput != "" {
+		fmt.Println(commitOutput)
+	}
 
 	fmt.Println("Pushing to remote...")
 	pushHandler := push.NewHandler(gitRunner)

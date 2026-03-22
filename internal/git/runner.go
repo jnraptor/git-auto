@@ -111,9 +111,8 @@ func (r *Runner) AddAll() error {
 	return err
 }
 
-func (r *Runner) Commit(message string) error {
-	_, err := r.Run("commit", "-m", message)
-	return err
+func (r *Runner) Commit(message string) (string, error) {
+	return r.Run("commit", "-m", message)
 }
 
 func (r *Runner) Push() error {
