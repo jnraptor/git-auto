@@ -95,17 +95,34 @@ jobs:
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
           PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          DELIMITER="$(openssl rand -hex 8)"
 
           if [ -n "$PREV_TAG" ]; then
             COMPARE_URL="https://github.com/${{ github.repository }}/compare/$PREV_TAG...$TAG"
             COMMITS=$(git log --pretty=format:"- %s" "$PREV_TAG..$TAG")
-            NOTES="## Changes\n$COMMITS\n\n[Compare $PREV_TAG → $TAG]($COMPARE_URL)\n\n## Installation\nDownload the binary for your platform from the assets below."
+            {
+              echo "body<<$DELIMITER"
+              echo "## Changes"
+              echo "$COMMITS"
+              echo ""
+              echo "[Compare $PREV_TAG → $TAG]($COMPARE_URL)"
+              echo ""
+              echo "## Installation"
+              echo "Download the binary for your platform from the assets below."
+              echo "$DELIMITER"
+            } >> $GITHUB_OUTPUT
           else
             COMMITS=$(git log --pretty=format:"- %s" HEAD)
-            NOTES="## Changes\n$COMMITS\n\n## Installation\nDownload the binary for your platform from the assets below."
+            {
+              echo "body<<$DELIMITER"
+              echo "## Changes"
+              echo "$COMMITS"
+              echo ""
+              echo "## Installation"
+              echo "Download the binary for your platform from the assets below."
+              echo "$DELIMITER"
+            } >> $GITHUB_OUTPUT
           fi
-
-          echo "body=$NOTES" >> $GITHUB_OUTPUT
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
