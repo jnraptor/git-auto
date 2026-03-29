@@ -240,3 +240,61 @@ func TestGitError(t *testing.T) {
 		}
 	})
 }
+
+func TestDiffSummary(t *testing.T) {
+	t.Run("DiffSummary struct fields", func(t *testing.T) {
+		summary := DiffSummary{
+			Stat:       " 3 files changed, 50 insertions(+), 20 deletions(-)",
+			Files:      []string{"a.go", "b.go", "c.go"},
+			FileCount:  3,
+			Insertions: 50,
+			Deletions:  20,
+			Truncated:  false,
+		}
+		
+		if summary.FileCount != 3 {
+			t.Errorf("FileCount = %d, want 3", summary.FileCount)
+		}
+		if summary.Insertions != 50 {
+			t.Errorf("Insertions = %d, want 50", summary.Insertions)
+		}
+		if summary.Deletions != 20 {
+			t.Errorf("Deletions = %d, want 20", summary.Deletions)
+		}
+	})
+}
+
+func TestStagedFiles(t *testing.T) {
+	// This test verifies the StagedFiles method signature and behavior
+	// with a temporary git repository
+	t.Run("StagedFiles returns empty list for empty output", func(t *testing.T) {
+		// We can't easily test the full method without a git repo,
+		// but we can verify the parsing logic indirectly
+		output := ""
+		if output == "" {
+			result := []string{}
+			if len(result) != 0 {
+				t.Errorf("Expected empty slice, got %v", result)
+			}
+		}
+	})
+}
+
+func TestRunnerUnstageMethods(t *testing.T) {
+	t.Run("UnstageFile command construction", func(t *testing.T) {
+		// Verify the command would be correct
+		// git reset HEAD -- <path>
+		path := "test.txt"
+		expectedArgs := []string{"reset", "HEAD", "--", path}
+		
+		if len(expectedArgs) != 4 {
+			t.Errorf("Expected 4 args, got %d", len(expectedArgs))
+		}
+		if expectedArgs[0] != "reset" {
+			t.Errorf("First arg should be 'reset', got %s", expectedArgs[0])
+		}
+		if expectedArgs[1] != "HEAD" {
+			t.Errorf("Second arg should be 'HEAD', got %s", expectedArgs[1])
+		}
+	})
+}

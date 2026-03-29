@@ -5,12 +5,14 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/git-automate/git-auto/config"
 	"github.com/git-automate/git-auto/internal/git"
 	"github.com/git-automate/git-auto/internal/interactive"
 	"github.com/git-automate/git-auto/internal/llm"
 	"github.com/git-automate/git-auto/internal/push"
+	"github.com/git-automate/git-auto/internal/security"
 )
 
 var (
@@ -23,6 +25,8 @@ var (
 	interactiveFlag  = flag.Bool("interactive", false, "Interactive mode: select files and confirm commit message")
 	customPromptFlag = flag.String("prompt", "", "Custom prompt template for LLM (use %s for diff placeholder)")
 	maxDiffFlag      = flag.Int("max-diff", 0, "Maximum characters of diff to send to LLM (0 = unlimited)")
+	diffThreshold    = flag.Int("diff-threshold", 0, "Character threshold for intelligent diff summarization (0 = no summarization)")
+	noSecurity       = flag.Bool("no-security", false, "Disable security checks (blocklist and redaction)")
 )
 
 func main() {
@@ -140,18 +144,107 @@ func main() {
 		fmt.Printf("Staged %d file(s).\n", len(filesToStage))
 	}
 
+	// Security Layer 1: Blocklist check (always on unless --no-security)
+	var securityProcessor *security.Processor
+	if !*noSecurity {
+		securityProcessor = security.NewProcessor()
+		
+		stagedFiles, err := gitRunner.StagedFiles()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error: Failed to get staged files:", err)
+			os.Exit(1)
+		}
+
+		blockedFiles := securityProcessor.ProcessStagedFiles(stagedFiles)
+		if len(blockedFiles) > 0 {
+			fmt.Fprintln(os.Stderr, "\n[Security] Sensitive files detected in staging area:")
+			for _, bf := range blockedFiles {
+				fmt.Fprintf(os.Stderr, "  - %s (matched pattern: %s)\n", bf.Path, bf.Pattern)
+			}
+			
+			// Get paths to unstage
+			var pathsToUnstage []string
+			for _, bf := range blockedFiles {
+				pathsToUnstage = append(pathsToUnstage, bf.Path)
+			}
+			
+			// Unstage the blocked files
+			for _, path := range pathsToUnstage {
+				if err := gitRunner.UnstageFile(path); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: Failed to unstage %s: %v\n", path, err)
+				}
+			}
+			fmt.Fprintf(os.Stderr, "[Security] Auto-unstaged %d file(s). These files will not be committed.\n", len(pathsToUnstage))
+			fmt.Fprintln(os.Stderr, "[Security] Add the following to .gitignore to prevent future accidental staging:")
+			fmt.Fprintln(os.Stderr, "  .ssh/ .aws/ .env *.pem id_rsa* secrets.yaml")
+			fmt.Fprintln(os.Stderr, "")
+		}
+	}
+
 	diff, err := gitRunner.Diff()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error: Failed to get diff:", err)
 		os.Exit(1)
 	}
 
+	// Security Layer 2: Redact sensitive content in diff (always on unless --no-security)
+	if !*noSecurity && securityProcessor != nil {
+		redactionResult := securityProcessor.ProcessDiff(diff)
+		if redactionResult.RedactedCount > 0 {
+			fmt.Fprintf(os.Stderr, "[Security] Redacted %d sensitive pattern(s) from diff:\n", redactionResult.RedactedCount)
+			for _, pattern := range redactionResult.RedactedPatterns {
+				fmt.Fprintf(os.Stderr, "  - %s\n", pattern)
+			}
+			fmt.Fprintln(os.Stderr, "[Security] Note: This only affects the diff sent to LLM, not your files.")
+			fmt.Fprintln(os.Stderr, "")
+			diff = redactionResult.Content
+		}
+	}
+
+	// Diff summarization: if diff exceeds threshold, replace with summary
 	commitMessage := *messageFlag
 	if commitMessage == "" {
 		fmt.Println("Generating commit message via LLM...")
 
 		if *customPromptFlag != "" {
 			llm.SetPromptTemplate(*customPromptFlag)
+		}
+
+		// Check if we need to summarize the diff
+		diffForLLM := diff
+		if *diffThreshold > 0 && len(diff) > *diffThreshold {
+			fmt.Printf("Diff exceeds threshold (%d > %d chars), generating summary...\n", len(diff), *diffThreshold)
+			
+			// Get diff stat for summary
+			diffStat, err := gitRunner.DiffStat()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to get diff stat: %v\n", err)
+			}
+			
+			// Get list of staged files
+			stagedFiles, err := gitRunner.StagedFiles()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to get staged files: %v\n", err)
+			}
+			
+			// Build summary for LLM
+			var summaryBuilder strings.Builder
+			summaryBuilder.WriteString("## Summary of Changes\n")
+			if diffStat != "" {
+				summaryBuilder.WriteString(diffStat)
+				summaryBuilder.WriteString("\n")
+			}
+			
+			summaryBuilder.WriteString("\n## Files Changed\n")
+			for _, file := range stagedFiles {
+				summaryBuilder.WriteString("- " + file + "\n")
+			}
+			
+			summaryBuilder.WriteString("\n## Note\n")
+			summaryBuilder.WriteString("The diff is too large to include in full. Please generate a commit message based on the summary above.")
+			summaryBuilder.WriteString("\nThe changes include modifications to the listed files.")
+			
+			diffForLLM = summaryBuilder.String()
 		}
 
 		var llmClient *llm.Client
@@ -161,7 +254,7 @@ func main() {
 			llmClient = llm.NewClient(cfg.APIKey, cfg.BaseURL, cfg.Model)
 		}
 
-		commitMessage, err = llmClient.GenerateCommitMessage(diff)
+		commitMessage, err = llmClient.GenerateCommitMessage(diffForLLM)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error: Failed to generate commit message:", err)
 			os.Exit(1)

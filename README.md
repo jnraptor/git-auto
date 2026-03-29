@@ -9,6 +9,9 @@ Automated git add-commit-push workflow with LLM-generated commit messages.
 - Interactive mode for file selection and commit message confirmation
 - Customizable LLM prompt templates
 - Configurable diff size limits for LLM input
+- Intelligent diff summarization for large changesets
+- **Security Layer 1**: Blocklist protection - auto-unstage sensitive files (.ssh/, .aws/, .env, *.pem, etc.)
+- **Security Layer 2**: Redaction - mask API keys, tokens, passwords, and secrets before LLM processing
 - Automatic push with merge strategy on rejection
 - Conflict detection with user guidance
 
@@ -69,6 +72,12 @@ Set environment variables:
 
 # Limit diff size sent to LLM (useful for large changes)
 ./git-auto --max-diff 10000
+
+# Use intelligent summarization for large diffs (>10000 chars)
+./git-auto --diff-threshold 10000
+
+# Disable security checks (not recommended)
+./git-auto --no-security
 ```
 
 ## Flags
@@ -80,7 +89,83 @@ Set environment variables:
 - `--interactive` - Interactive mode: select files to stage and confirm/edit commit message
 - `--prompt` - Custom prompt template for LLM (use `%s` as placeholder for diff)
 - `--max-diff` - Maximum characters of diff to send to LLM (0 = unlimited, default: 0)
+- `--diff-threshold` - Character threshold for intelligent diff summarization (0 = disabled)
+- `--no-security` - Disable security checks (blocklist and redaction)
 - `--tag` - Create and push a tag after successful push
+
+## Security Features
+
+git-auto includes two layers of security protection that are **enabled by default**:
+
+### Layer 1: Blocklist (Sanitizer)
+
+Automatically detects and unstages sensitive files before they can be committed:
+
+- `.ssh/` - SSH keys and configuration
+- `.aws/` - AWS credentials and configuration
+- `.env` - Environment files
+- `*.pem` - Certificate and key files
+- `id_rsa`, `id_dsa`, `id_ecdsa`, `id_ed25519` - Private key files
+- `secrets.yaml` - Kubernetes/secrets files
+
+**Behavior**: When sensitive files are detected in the staging area, they are automatically unstaged with a warning. The commit proceeds with the remaining safe files.
+
+### Layer 2: Redaction
+
+Before sending the diff to the LLM, sensitive content is masked:
+
+- OpenAI API keys (`sk-...`)
+- AWS Access Key IDs (`AKIA...`)
+- GitHub tokens (`ghp_...`, `gho_...`)
+- Bearer tokens
+- Generic API keys, tokens, and passwords (e.g., `API_KEY=...`, `password=...`)
+- Private key headers
+
+**Behavior**: Sensitive patterns in the diff are replaced with `[REDACTED]` before being sent to the LLM. Your actual files on disk are never modified.
+
+### Disabling Security
+
+If you need to commit files that match these patterns (not recommended):
+
+```bash
+./git-auto --no-security
+```
+
+### Recommended .gitignore
+
+Add these patterns to your `.gitignore` to prevent accidental staging:
+
+```
+.ssh/
+.aws/
+.env
+*.pem
+id_rsa*
+id_dsa*
+id_ecdsa*
+id_ed25519*
+secrets.yaml
+```
+
+## Intelligent Diff Summarization
+
+For large changesets, git-auto can intelligently summarize the diff instead of truncating it:
+
+```bash
+# Use a 10000 character threshold
+./git-auto --diff-threshold 10000
+```
+
+When the diff exceeds the threshold:
+- Uses `git diff --stat` to generate a summary
+- Lists all changed files
+- Sends this summary to the LLM instead of the raw diff
+- The LLM generates a commit message based on the summary
+
+This approach:
+- Preserves context better than simple truncation
+- Works well with models that have limited context windows
+- Configurable per model capabilities
 
 ## Interactive Mode
 
@@ -95,10 +180,13 @@ When using `--interactive`, you can select files using:
 ## Workflow
 
 1. **Stage**: Files are staged (all or untracked based on `-a` flag)
-2. **Commit Message**: If `-m` not provided, sends staged diff to LLM to generate a conventional commit message
-3. **Commit**: Creates commit with the message
-4. **Push**: Pushes to remote
-5. **Handle Rejection**: If push is rejected (non-fast-forward):
+2. **Security Check**: Blocklist check auto-unstages sensitive files (Layer 1)
+3. **Redaction**: Sensitive content is masked in the diff (Layer 2)
+4. **Diff Summarization**: If diff exceeds threshold, generates summary
+5. **Commit Message**: If `-m` not provided, sends processed diff to LLM
+6. **Commit**: Creates commit with the message
+7. **Push**: Pushes to remote
+8. **Handle Rejection**: If push is rejected (non-fast-forward):
    - Automatically pulls with merge strategy
    - Retries push
    - If conflicts occur, reports them and exits for manual resolution

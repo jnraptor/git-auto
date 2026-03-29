@@ -2,6 +2,7 @@ package git
 
 import (
 	"bytes"
+	"fmt"
 	"os/exec"
 	"strings"
 )
@@ -100,6 +101,39 @@ func (r *Runner) DiffAll() (string, error) {
 	return r.Run("diff")
 }
 
+// DiffStat returns a statistical summary of the staged diff.
+// Example output: " 5 files changed, 150 insertions(+), 50 deletions(-)"
+func (r *Runner) DiffStat() (string, error) {
+	return r.Run("diff", "--staged", "--stat")
+}
+
+// DiffStatFormat returns a formatted diff stat with a custom width.
+func (r *Runner) DiffStatFormat(width int) (string, error) {
+	return r.Run("diff", "--staged", fmt.Sprintf("--stat-width=%d", width))
+}
+
+// StagedFiles returns a list of files currently staged for commit.
+func (r *Runner) StagedFiles() ([]string, error) {
+	output, err := r.Run("diff", "--staged", "--name-only")
+	if err != nil {
+		return nil, err
+	}
+	if output == "" {
+		return []string{}, nil
+	}
+	return strings.Split(strings.TrimSpace(output), "\n"), nil
+}
+
+// DiffSummary contains parsed information about a diff.
+type DiffSummary struct {
+	Stat        string
+	Files       []string
+	FileCount   int
+	Insertions  int
+	Deletions   int
+	Truncated   bool
+}
+
 func (r *Runner) Add(paths ...string) error {
 	args := append([]string{"add"}, paths...)
 	_, err := r.Run(args...)
@@ -108,6 +142,18 @@ func (r *Runner) Add(paths ...string) error {
 
 func (r *Runner) AddAll() error {
 	_, err := r.Run("add", "-A")
+	return err
+}
+
+// UnstageFile removes a file from the staging area (but keeps changes in working tree).
+func (r *Runner) UnstageFile(path string) error {
+	_, err := r.Run("reset", "HEAD", "--", path)
+	return err
+}
+
+// UnstageAll removes all files from the staging area.
+func (r *Runner) UnstageAll() error {
+	_, err := r.Run("reset", "HEAD")
 	return err
 }
 
@@ -149,4 +195,47 @@ func (r *Runner) Tag(name string) error {
 func (r *Runner) PushTags() error {
 	_, err := r.Run("push", "--tags")
 	return err
+}
+
+// GetStagedContent returns the content of a file as staged (from the index).
+func (r *Runner) GetStagedContent(path string) (string, error) {
+	return r.Run("show", ":"+path)
+}
+
+// HashObject computes the git object hash for the given content.
+func (r *Runner) HashObject(content []byte) (string, error) {
+	cmd := exec.Command("git", "hash-object", "-w", "--stdin")
+	cmd.Dir = r.dir
+	cmd.Stdin = bytes.NewReader(content)
+	
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	
+	err := cmd.Run()
+	if err != nil {
+		if stderr.Len() > 0 {
+			return "", &GitError{Command: "git hash-object -w --stdin", Stderr: stderr.String(), Err: err}
+		}
+		return "", &GitError{Command: "git hash-object -w --stdin", Err: err}
+	}
+	
+	return strings.TrimSpace(stdout.String()), nil
+}
+
+// UpdateIndex updates the index entry for a file with the given object hash.
+func (r *Runner) UpdateIndex(path, hash string) error {
+	_, err := r.Run("update-index", "--add", "--cacheinfo", "100644", hash, path)
+	return err
+}
+
+// UpdateIndexFromContent writes content as a blob and updates the index entry.
+// This modifies only the index, not the working tree.
+func (r *Runner) UpdateIndexFromContent(path string, content []byte) error {
+	hash, err := r.HashObject(content)
+	if err != nil {
+		return fmt.Errorf("failed to create blob: %w", err)
+	}
+	
+	return r.UpdateIndex(path, hash)
 }
