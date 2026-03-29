@@ -98,11 +98,7 @@ jobs:
           
            if [ -n "$PREV_TAG" ]; then
              COMPARE_URL="https://github.com/${{ github.repository }}/compare/$PREV_TAG...$TAG"
-             NOTES="## Changes
-See [$PREV_TAG → $TAG]($COMPARE_URL) for the full diff.
-
-## Installation
-Download the binary for your platform from the assets below."
+             NOTES="## Changes\nSee [$PREV_TAG → $TAG]($COMPARE_URL) for the full diff.\n\n## Installation\nDownload the binary for your platform from the assets below."
            else
              NOTES="## Changes
 Initial release.
