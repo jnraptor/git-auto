@@ -16,17 +16,18 @@ import (
 )
 
 var (
-	allFlag          = flag.Bool("a", false, "Stage all changed files")
-	allFlagLong      = flag.Bool("all", false, "Stage all changed files")
-	messageFlag      = flag.String("m", "", "Commit message (if not provided, generate via LLM)")
-	dryRunFlag       = flag.Bool("dry-run", false, "Show what would be done without executing")
-	forcePushFlag    = flag.Bool("force-push", false, "Force push (use with caution)")
-	tagFlag          = flag.String("tag", "", "Create and push a tag after successful push")
-	interactiveFlag  = flag.Bool("interactive", false, "Interactive mode: select files and confirm commit message")
-	customPromptFlag = flag.String("prompt", "", "Custom prompt template for LLM (use %s for diff placeholder)")
-	maxDiffFlag      = flag.Int("max-diff", 0, "Maximum characters of diff to send to LLM (0 = unlimited)")
-	diffThreshold    = flag.Int("diff-threshold", 0, "Character threshold for intelligent diff summarization (0 = no summarization)")
-	noSecurity       = flag.Bool("no-security", false, "Disable security checks (blocklist and redaction)")
+	allFlag             = flag.Bool("a", false, "Stage all changed files")
+	allFlagLong         = flag.Bool("all", false, "Stage all changed files")
+	messageFlag         = flag.String("m", "", "Commit message (if not provided, generate via LLM)")
+	dryRunFlag          = flag.Bool("dry-run", false, "Show what would be done without executing")
+	forcePushFlag       = flag.Bool("force-push", false, "Force push (use with caution)")
+	tagFlag             = flag.String("tag", "", "Create and push a tag after successful push")
+	interactiveFlag     = flag.Bool("interactive", false, "Interactive mode: select files and confirm commit message")
+	customPromptFlag    = flag.String("prompt", "", "Custom prompt template for LLM (use %s for diff placeholder)")
+	maxDiffFlag         = flag.Int("max-diff", 0, "Maximum characters of diff to send to LLM (0 = unlimited)")
+	diffThreshold       = flag.Int("diff-threshold", 0, "Character threshold for intelligent diff summarization (0 = no summarization)")
+	noSecurity          = flag.Bool("no-security", false, "Disable security checks (blocklist and redaction)")
+	verboseSecurityFlag = flag.Bool("verbose-security", false, "Show security warnings when redaction occurs")
 )
 
 func main() {
@@ -191,12 +192,14 @@ func main() {
 	if !*noSecurity && securityProcessor != nil {
 		redactionResult := securityProcessor.ProcessDiff(diff)
 		if redactionResult.RedactedCount > 0 {
-			fmt.Fprintf(os.Stderr, "[Security] Redacted %d sensitive pattern(s) from diff:\n", redactionResult.RedactedCount)
-			for _, pattern := range redactionResult.RedactedPatterns {
-				fmt.Fprintf(os.Stderr, "  - %s\n", pattern)
+			if *verboseSecurityFlag {
+				fmt.Fprintf(os.Stderr, "[Security] Redacted %d sensitive pattern(s) in:\n", redactionResult.RedactedCount)
+				for _, file := range redactionResult.RedactedFiles {
+					fmt.Fprintf(os.Stderr, "  - %s\n", file)
+				}
+				fmt.Fprintln(os.Stderr, "[Security] Note: This only affects the diff sent to LLM, not your files.")
+				fmt.Fprintln(os.Stderr, "")
 			}
-			fmt.Fprintln(os.Stderr, "[Security] Note: This only affects the diff sent to LLM, not your files.")
-			fmt.Fprintln(os.Stderr, "")
 			diff = redactionResult.Content
 		}
 	}

@@ -78,15 +78,17 @@ type RedactionResult struct {
 	Content          string
 	RedactedCount    int
 	RedactedPatterns []string
+	RedactedFiles    []string
 }
 
 // RedactContent redacts sensitive patterns from the given content.
-// Returns the redacted content and details about what was redacted.
+// Returns the redacted content and details about what was found.
 func (r *Redactor) RedactContent(content string) RedactionResult {
 	result := RedactionResult{
 		Content:          content,
 		RedactedCount:    0,
 		RedactedPatterns: []string{},
+		RedactedFiles:    []string{},
 	}
 
 	patternsFound := make(map[string]bool)
@@ -102,7 +104,43 @@ func (r *Redactor) RedactContent(content string) RedactionResult {
 		}
 	}
 
+	// Identify which files had redactions
+	result.RedactedFiles = identifyRedactedFiles(result.Content)
+
 	return result
+}
+
+// identifyRedactedFiles parses the diff content and returns files that contain [REDACTED].
+func identifyRedactedFiles(content string) []string {
+	var redactedFiles []string
+	var currentFile string
+	lines := strings.Split(content, "\n")
+
+	for _, line := range lines {
+		// Check for diff header line indicating a new file
+		if strings.HasPrefix(line, "diff --git a/") {
+			// Extract the file path from "diff --git a/path/to/file b/path/to/file"
+			parts := strings.Split(line, " ")
+			if len(parts) >= 4 {
+				// a/file b/file -> extract a/file
+				currentFile = strings.TrimPrefix(parts[2], "a/")
+			}
+		} else if strings.Contains(line, "[REDACTED]") && currentFile != "" {
+			// Check if this file is already in the list
+			found := false
+			for _, f := range redactedFiles {
+				if f == currentFile {
+					found = true
+					break
+				}
+			}
+			if !found {
+				redactedFiles = append(redactedFiles, currentFile)
+			}
+		}
+	}
+
+	return redactedFiles
 }
 
 // RedactLine redacts a single line of text.

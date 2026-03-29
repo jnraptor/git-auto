@@ -91,6 +91,7 @@ Set environment variables:
 - `--max-diff` - Maximum characters of diff to send to LLM (0 = unlimited, default: 0)
 - `--diff-threshold` - Character threshold for intelligent diff summarization (0 = disabled)
 - `--no-security` - Disable security checks (blocklist and redaction)
+- `--verbose-security` - Show security warnings when redaction occurs (silent by default)
 - `--tag` - Create and push a tag after successful push
 
 ## Security Features
@@ -122,6 +123,12 @@ Before sending the diff to the LLM, sensitive content is masked:
 - Private key headers
 
 **Behavior**: Sensitive patterns in the diff are replaced with `[REDACTED]` before being sent to the LLM. Your actual files on disk are never modified.
+
+**Silent by default**: Redaction happens automatically without showing warnings. Use `--verbose-security` to see what was redacted:
+
+```bash
+./git-auto --verbose-security
+```
 
 ### Disabling Security
 
